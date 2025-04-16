@@ -1,11 +1,284 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>RPG</title>
-    <script src=https://code.jquery.com/jquery-3.6.0.min.js></script>
-    <link href="/css/my.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <title>RPG Admin Panel</title>
+    <link rel="stylesheet" href="/css/my.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-<h1>RPG admin panel</h1>
+<h1>RPG Admin Panel</h1>
+<h2>Accounts</h2>
 
+<!-- Таблица игроков -->
+<table id="playersTable">
+    <tr>
+        <th>#</th>
+        <th>Name</th>
+        <th>Title</th>
+        <th>Race</th>
+        <th>Profession</th>
+        <th>Level</th>
+        <th>Birthday</th>
+        <th>Banned</th>
+        <th>Edit</th>
+        <th>Delete</th>
+    </tr>
+</table>
+
+<!-- Выбор количества строк -->
+<div id="pageSizeSelector">
+    Count per page:
+    <select id="pageSizeSelect">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="10">10</option>
+        <option value="20">20</option>
+    </select>
+</div>
+
+<!-- Кнопки пейджинга -->
+<div id="paging"><span class="pages-label">Pages:</span></div>
+
+<hr>
+
+<!-- Форма создания нового аккаунта -->
+<div id="createForm">
+    <h3>Create new account</h3>
+    <input type="text" id="nameInput" placeholder="Name (1-12)">
+    <input type="text" id="titleInput" placeholder="Title (1-30)">
+    <select id="raceInput">
+        <option value="HUMAN">Human</option>
+        <option value="DWARF">Dwarf</option>
+        <option value="ELF">Elf</option>
+        <option value="GIANT">Giant</option>
+        <option value="ORC">Orc</option>
+        <option value="TROLL">Troll</option>
+        <option value="HOBBIT">Hobbit</option>
+    </select>
+    <select id="professionInput">
+        <option value="WARRIOR">Warrior</option>
+        <option value="ROGUE">Rogue</option>
+        <option value="SORCERER">Sorcerer</option>
+        <option value="CLERIC">Cleric</option>
+        <option value="PALADIN">Paladin</option>
+        <option value="NAZGUL">Nazgul</option>
+        <option value="WARLOCK">Warlock</option>
+        <option value="DRUID">Druid</option>
+    </select>
+    <input type="number" id="levelInput" placeholder="Level (0–100)" min="0" max="100">
+    <input type="date" id="birthdayInput">
+    <label><input type="checkbox" id="bannedInput"> Banned</label>
+    <button id="createButton">Create</button>
+</div>
+
+<!-- Модальное окно подтверждения -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <p>Are you sure you want to delete this account?</p>
+        <button id="confirmDelete">Yes</button>
+        <button id="cancelDelete">No</button>
+    </div>
+</div>
+
+<script>
+    let currentPage = 0;
+    let pageSize = 5;
+    let totalPlayers = 0;
+    let playerToDelete = null;
+
+    function loadTotalCount() {
+        fetch('/rest/players/count')
+            .then(r => r.json())
+            .then(count => {
+                totalPlayers = count;
+                renderPagination();
+                loadPlayers();
+            });
+    }
+
+    function loadPlayers() {
+        fetch(`/rest/players?pageNumber=${currentPage}&pageSize=${pageSize}`)
+            .then(r => r.json())
+            .then(data => {
+                const table = document.getElementById('playersTable');
+                while (table.rows.length > 1) table.deleteRow(1);
+
+                data.forEach((player, i) => {
+                    const row = table.insertRow();
+                    row.insertCell(0).textContent = i + 1 + currentPage * pageSize;
+
+                    const name = row.insertCell(1);
+                    name.textContent = player.name;
+
+                    const title = row.insertCell(2);
+                    title.textContent = player.title;
+
+                    const race = row.insertCell(3);
+                    race.textContent = player.race;
+
+                    const prof = row.insertCell(4);
+                    prof.textContent = player.profession;
+
+                    const lvl = row.insertCell(5);
+                    lvl.textContent = player.level;
+
+                    const birthday = row.insertCell(6);
+                    birthday.textContent = new Date(player.birthday).toLocaleDateString();
+
+                    const banned = row.insertCell(7);
+                    banned.textContent = player.banned ? 'Yes' : 'No';
+
+                    const editCell = row.insertCell(8);
+                    const editImg = document.createElement('img');
+                    editImg.src = '/img/edit.png';
+                    editImg.className = 'action-icon';
+                    editImg.addEventListener('click', () => enterEditMode(row, player.id));
+                    editCell.appendChild(editImg);
+
+                    const deleteCell = row.insertCell(9);
+                    const delImg = document.createElement('img');
+                    delImg.src = '/img/delete.png';
+                    delImg.className = 'action-icon';
+                    delImg.addEventListener('click', () => showModal(player.id));
+                    deleteCell.appendChild(delImg);
+                });
+            });
+    }
+
+    function renderPagination() {
+        const totalPages = Math.ceil(totalPlayers / pageSize);
+        const pagingDiv = document.getElementById('paging');
+        pagingDiv.innerHTML = '<span class="pages-label">Pages:</span>';
+
+        for (let i = 0; i < totalPages; i++) {
+            const btn = document.createElement('button');
+            btn.textContent = i + 1;
+            btn.className = 'page-button' + (i === currentPage ? ' active' : '');
+            btn.addEventListener('click', () => {
+                currentPage = i;
+                loadPlayers();
+                renderPagination();
+            });
+            pagingDiv.appendChild(btn);
+        }
+    }
+
+    document.getElementById('pageSizeSelect').addEventListener('change', function () {
+        pageSize = parseInt(this.value);
+        currentPage = 0;
+        loadTotalCount();
+    });
+
+    document.getElementById('createButton').addEventListener('click', () => {
+        const newPlayer = {
+            name: document.getElementById('nameInput').value,
+            title: document.getElementById('titleInput').value,
+            race: document.getElementById('raceInput').value,
+            profession: document.getElementById('professionInput').value,
+            level: parseInt(document.getElementById('levelInput').value),
+            birthday: new Date(document.getElementById('birthdayInput').value).getTime(),
+            banned: document.getElementById('bannedInput').checked
+        };
+
+        fetch('/rest/players', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(newPlayer)
+        }).then(() => {
+            clearForm();
+            loadTotalCount();
+        });
+    });
+
+    function clearForm() {
+        document.getElementById('nameInput').value = '';
+        document.getElementById('titleInput').value = '';
+        document.getElementById('raceInput').value = 'HUMAN';
+        document.getElementById('professionInput').value = 'WARRIOR';
+        document.getElementById('levelInput').value = '';
+        document.getElementById('birthdayInput').value = '';
+        document.getElementById('bannedInput').checked = false;
+    }
+
+    function showModal(id) {
+        playerToDelete = id;
+        document.getElementById('modal').style.display = 'block';
+    }
+
+    document.getElementById('confirmDelete').addEventListener('click', () => {
+        fetch(`/rest/players/${playerToDelete}`, {
+            method: 'DELETE'
+        }).then(() => {
+            document.getElementById('modal').style.display = 'none';
+            loadTotalCount();
+        });
+    });
+
+    document.getElementById('cancelDelete').addEventListener('click', () => {
+        playerToDelete = null;
+        document.getElementById('modal').style.display = 'none';
+    });
+
+    function enterEditMode(row, id) {
+        const cells = row.cells;
+        const inputs = [];
+
+        for (let i of [1, 2]) {
+            const input = document.createElement('input');
+            input.value = cells[i].textContent;
+            cells[i].innerHTML = '';
+            cells[i].appendChild(input);
+            inputs.push(input);
+        }
+
+        const raceSel = document.createElement('select');
+        ["HUMAN", "DWARF", "ELF", "GIANT", "ORC", "TROLL", "HOBBIT"].forEach(val => {
+            const o = new Option(val, val);
+            if (cells[3].textContent === val) o.selected = true;
+            raceSel.appendChild(o);
+        });
+        cells[3].innerHTML = '';
+        cells[3].appendChild(raceSel);
+
+        const profSel = document.createElement('select');
+        ["WARRIOR", "ROGUE", "SORCERER", "CLERIC", "PALADIN", "NAZGUL", "WARLOCK", "DRUID"].forEach(val => {
+            const o = new Option(val, val);
+            if (cells[4].textContent === val) o.selected = true;
+            profSel.appendChild(o);
+        });
+        cells[4].innerHTML = '';
+        cells[4].appendChild(profSel);
+
+        const bannedChk = document.createElement('input');
+        bannedChk.type = 'checkbox';
+        bannedChk.checked = cells[7].textContent === 'Yes';
+        cells[7].innerHTML = '';
+        cells[7].appendChild(bannedChk);
+
+        const saveBtn = cells[8].querySelector('img');
+        saveBtn.src = '/img/save.png';
+        saveBtn.removeEventListener('click', () => enterEditMode(row, id));
+        saveBtn.addEventListener('click', () => {
+            const updatedPlayer = {
+                name: inputs[0].value,
+                title: inputs[1].value,
+                race: raceSel.value,
+                profession: profSel.value,
+                banned: bannedChk.checked
+            };
+
+            fetch(`/rest/players/${id}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(updatedPlayer)
+            }).then(() => loadPlayers());
+        });
+
+        cells[9].style.visibility = 'hidden'; // Hide delete icon
+    }
+
+    document.addEventListener('DOMContentLoaded', loadTotalCount);
+</script>
 </body>
 </html>
